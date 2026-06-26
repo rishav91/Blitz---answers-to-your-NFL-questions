@@ -46,7 +46,7 @@ answer key.
 |---|---|
 | Auth, multi-tenancy, multi-user concurrency | Single local learner, single Streamlit session — no second user to isolate from |
 | Deployment / hosting | Runs locally via `streamlit run`; no target environment was ever in scope |
-| Horizontal scale, production observability/monitoring | Dataset is ~800 game rows + ~50k play rows, one session at a time — there's no load to plan for |
+| Horizontal scale, production-grade monitoring (alerting, SLOs, multi-tenant cost controls) | Dataset is ~800 game rows + ~50k play rows, one session at a time — there's no load or on-call need to plan for. Per-request dev-time tracing/metrics/logs for transparency into each node's behavior *is* in scope — see [ADR-008](ADRs.md#adr-008) |
 | Comprehensive NFL stats coverage | Only the five named metrics in `calculate_team_stats` plus `get_standings`; this is a pattern-exposure project, not a stats product |
 | LlamaIndex, AutoGen/CrewAI, LangChain LCEL-only, FastAPI, `pdfplumber`, hard-coded single-vendor LLM SDK calls | See [ADRs.md](ADRs.md) for the full alternatives-and-reasons treatment |
 

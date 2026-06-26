@@ -217,3 +217,30 @@ see [PRD.md §Excluded](PRD.md#goals--non-goals).
   process (the chat graph) — no concurrent-write consistency concerns.
 - **Config/secrets:** `.env` holds API keys and the configured generation
   model/provider (`NFR-3`); nothing model-specific is hardcoded in node code.
+
+## Observability (ADR-008)
+
+Dev-time transparency into what each node is doing — distinct from, and not
+a contradiction of, [PRD.md §Excluded](PRD.md#goals--non-goals)'s exclusion
+of production-scale monitoring.
+
+```mermaid
+flowchart LR
+    APP["graph/observability.py\ntraced_node decorator\n+ openinference auto-instrumentation"] -- "OTLP" --> COL["otel-collector"]
+    COL --> TEMPO[("Tempo\ntraces")]
+    COL --> PROM[("Prometheus\nmetrics")]
+    COL --> LOKI[("Loki\nlogs")]
+    TEMPO --> GRAF["Grafana :3000\ntrace-to-logs/metrics correlation"]
+    PROM --> GRAF
+    LOKI --> GRAF
+```
+
+- One root trace per `graph.invoke()` call, one child span per node visited
+  (including repeat visits across the reflection/sufficiency retry loops),
+  one grandchild span per LLM call (prompt/completion/tokens, auto-captured).
+- `ui/app.py` renders a per-answer "Reasoning trail" expander (intent,
+  filters used, retry count, last failure) with a deep link into the
+  matching Grafana trace.
+- Run the stack: `docker compose -f observability/docker-compose.yml up -d`,
+  then open Grafana at `localhost:3001` (anonymous admin, local-only; mapped
+  off the default 3000 to avoid colliding with other local dev servers).

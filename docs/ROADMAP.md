@@ -119,3 +119,13 @@ already working (Phase 3: HITL gates generation, which by then has retrieval
 and tools both proven). This order means a timebox slip surfaces against the
 *cheapest* patterns first, not the most expensive ones — see [PRD.md
 §Risks](PRD.md#risks).
+
+## Cross-cutting — Observability layer
+
+Added after Phase 1 landed, orthogonal to the five-pattern phase sequence
+above rather than its own numbered phase: OpenTelemetry traces/metrics/logs
+on every existing node, visualized in Tempo/Prometheus/Loki/Grafana (see
+[ADR-008](ADRs.md#adr-008), [ARCHITECTURE.md §Observability](ARCHITECTURE.md#observability-adr-008)).
+The `traced_node` decorator pattern carries forward automatically as Phase
+2/3 nodes get built — they inherit it the same way `analytical_stub_node`/
+`predictive_stub_node` already do.

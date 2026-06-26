@@ -132,11 +132,15 @@ flowchart LR
 - **Evaluation:** the Test Queries / use-cases table (UC-1..UC-7,
   [REQUIREMENTS.md](REQUIREMENTS.md)) is the eval set — manually run and
   checked against public NFL data, once per pattern at minimum.
-- **Cost tracking:** none built; not needed at this scale (~800 chunks,
-  single session, bounded retries). Token cost is naturally bounded by
-  `NFR-1` (max 2 reflection retries) and the at-most-two-calls shape of the
-  comparison use case (`ADR-005`).
+- **Cost tracking:** no dedicated Prometheus series, but every LLM call is
+  traced (prompt/completion/token counts as span attributes, via
+  `openinference-instrumentation-langchain`) and viewable per-request in
+  Grafana/Tempo — see [ADR-008](ADRs.md#adr-008). No alerting/budget
+  enforcement on top of that; not needed at this scale (~800 chunks, single
+  session, bounded retries via `NFR-1`).
 - **Per-tenant budgets:** not applicable — one user, no tenancy.
 - **Auditability:** LangGraph's checkpointer retains the full state history
-  for a thread, which is sufficient to inspect what a given run retrieved,
-  called, or generated during development — no separate audit log is built.
+  for a thread; OpenTelemetry traces/logs (`ADR-008`) now give the same
+  per-run visibility (what was retrieved, classified, retried, and why)
+  without needing to inspect checkpointer internals directly, and correlate
+  it with timing and the underlying LLM calls.

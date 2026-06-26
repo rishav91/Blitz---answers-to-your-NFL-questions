@@ -15,6 +15,7 @@ renumber.
 | [ADR-005](#adr-005) | No `compare_teams` tool — the model calls `calculate_team_stats` twice | Accepted |
 | [ADR-006](#adr-006) | No LLM hard-coupling — `init_chat_model` over a vendor SDK or a proxy | Accepted |
 | [ADR-007](#adr-007) | `games` → RAG, `pbp` → tools, `pbp` never embedded | Accepted |
+| [ADR-008](#adr-008) | OpenTelemetry + Tempo/Prometheus/Loki/Grafana for dev-time observability | Accepted |
 
 ---
 
@@ -249,3 +250,65 @@ as an in-memory DataFrame and is *only* ever touched by tools, never embedded.
   aggregate stat must be served by two separate calls (one retrieval, one
   tool) rather than one unified lookup — accepted, since that two-call shape
   is itself the thing being demonstrated.
+
+---
+
+<a id="adr-008"></a>
+## ADR-008 — OpenTelemetry + Tempo/Prometheus/Loki/Grafana for dev-time observability
+
+**Context:** Beyond a terminal spinner, there was no way to see what
+`router_node` classified, what filters `retrieval_node` built, why
+`reflection_node` triggered a retry, or how long any of that took. This is
+explicitly scoped as dev-time transparency into each node's behavior, not
+the production-scale monitoring (alerting, SLOs, multi-tenant cost control)
+[PRD.md §Goals & non-goals](PRD.md#goals--non-goals) already excludes — see
+that entry's updated wording.
+
+**Decision:** Instrument the graph with OpenTelemetry — one root trace per
+`graph.invoke()` call, one child span per node visited (`graph/observability.py`'s
+`traced_node` decorator), one grandchild span per LLM call (auto-captured via
+`openinference-instrumentation-langchain`, with no changes to `graph/llm.py`).
+Traces, metrics, and logs all ship over OTLP to a single collector
+(`observability/docker-compose.yml`), which fans out to Tempo, Prometheus,
+and Loki, unified in one Grafana UI with trace-to-logs/trace-to-metrics
+correlation. `ui/app.py` also surfaces a per-answer "Reasoning trail"
+expander (intent, filters used, retry count, last failure) plus a deep link
+into the matching Grafana trace.
+
+**Alternatives:**
+- *Arize Phoenix* — OSS, `pip install`-only, zero Docker, auto-instruments
+  LangChain/LangGraph the same way. The lightest option and the best fit for
+  this project's no-backend stance (`ADR-002`), but narrower than a real
+  metrics+logs pillar — it's a trace viewer with some derived stats, not a
+  Prometheus/Grafana-style dashboard or a Loki-style log store. Rejected
+  because the user explicitly wanted the standard, transferable three-pillars
+  tooling over the lightest-weight option.
+- *Langfuse (self-hosted)* — richer single tool (traces, scoring, cost
+  tracking) via a LangChain `CallbackHandler`, but LLM-specific rather than
+  the general-purpose observability stack, and still needs ~4 containers
+  (Postgres/ClickHouse/Redis/server). Rejected for the same reason as Phoenix.
+- *LangSmith* — the framework-native option (env-var only setup), but a
+  proprietary SaaS product, not open source. Rejected outright per the
+  project's OSS preference.
+
+**Consequences:**
+- `+` Each user question is one fully correlated trace — node spans, nested
+  LLM-call spans (prompt/completion/tokens), structured logs, and counters
+  all clickable from one Grafana trace view.
+- `+` Standard, vendor-neutral tooling (OpenTelemetry + Grafana stack) rather
+  than an LLM-specific observability product — more transferable outside
+  this project.
+- `−` ~5 Docker containers (collector, Tempo, Prometheus, Loki, Grafana)
+  running locally — meaningfully more infrastructure than `ADR-002`'s
+  original "no backend" framing. Accepted because this is observability
+  tooling sitting beside the app for the same single local user, not a
+  reintroduction of the HTTP-API-backend problem `ADR-002` actually avoided
+  (no app code talks HTTP to it except one-way OTLP export; nothing about
+  request/response serialization or `interrupt()`/resume crosses a network
+  boundary).
+- `−` Token-usage/cost is visible per-trace (OpenInference span attributes)
+  but not duplicated as its own Prometheus series in this pass — a fast
+  follow if a "tokens over time" dashboard panel is wanted later.
+- `−` Span nesting here assumes Phase 1's graph executes sequentially in one
+  thread; if Phase 2/3 introduce concurrent tool calls or parallel branches,
+  OTel context propagation across threads needs rechecking then.
