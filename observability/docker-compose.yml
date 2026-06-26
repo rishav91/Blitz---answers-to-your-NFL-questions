@@ -1,0 +1,71 @@
+# Dev-time observability sidecar (ADR-008) — traces/metrics/logs for the
+# Streamlit app in ../ui/app.py. Not part of the application; the app only
+# ever talks OTLP to the collector, so this stack can be swapped without
+# touching app code. Run: docker compose -f observability/docker-compose.yml up -d
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: blitz-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC — app sends here
+      - "4318:4318" # OTLP HTTP — app sends here
+    depends_on:
+      - tempo
+      - loki
+
+  tempo:
+    image: grafana/tempo:2.6.1 # v3.0 changed the config schema (ingester/compactor moved); pin to a known-good v2.x
+    container_name: blitz-tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200" # Tempo query API, for direct debugging
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: blitz-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+  loki:
+    image: grafana/loki:latest
+    container_name: blitz-loki
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    volumes:
+      - ./loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki-data:/loki
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: blitz-grafana
+    environment:
+      # Single local user, no second user to authenticate against (mirrors
+      # ARCHITECTURE.md's "Multi-tenancy & isolation" stance) — frictionless
+      # local dev, not exposed beyond localhost.
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000" # host 3000 is already taken by another local dev process
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+volumes:
+  tempo-data:
+  prometheus-data:
+  loki-data:
+  grafana-data:
