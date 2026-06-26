@@ -106,6 +106,42 @@ Concretely:
 | Reflection (`FR-4.x`) | Post-generation grounding/coverage check, *after* an answer exists | Agentic RAG's `assess_sufficiency` — that runs *before* generation and asks a different question |
 | HITL (`FR-5.x`) | Gating speculative output *before* `generation_node` runs | Any branch where the answer isn't genuinely speculative — don't gate things that don't need gating |
 
+```mermaid
+flowchart LR
+    RULE(["Governing Rule\nNo pattern may use another\npattern's mechanism as a shortcut"])
+
+    subgraph RAG_BOX ["RAG — FR-1.x"]
+        RAG_OWN["Owns: single-hop retrieval\n+ plain generation\nno tool calls on this path"]
+    end
+
+    subgraph ARAG_BOX ["Agentic RAG — FR-2.x"]
+        ARAG_OWN["Owns: multi-hop retrieval\nhop 2 query depends on hop 1 result\nassess_sufficiency loop"]
+    end
+
+    subgraph TOOL_BOX ["Tool Calling — FR-3.x"]
+        TOOL_OWN["Owns: arithmetic over pbp + games\nmodel decides how many calls\nno compare_teams wrapper"]
+    end
+
+    subgraph REFL_BOX ["Reflection — FR-4.x"]
+        REFL_OWN["Owns: post-generation check\ngrounding + coverage judgment\nshared retry budget NFR-1"]
+    end
+
+    subgraph HITL_BOX ["HITL — FR-5.x"]
+        HITL_OWN["Owns: interrupt before generation\nonly on speculative answers\nnot a generic confirmation gate"]
+    end
+
+    RULE --> RAG_BOX
+    RULE --> ARAG_BOX
+    RULE --> TOOL_BOX
+    RULE --> REFL_BOX
+    RULE --> HITL_BOX
+
+    RAG_OWN -. "must not use\ntool calls" .-> TOOL_OWN
+    ARAG_OWN -. "must not substitute\naggregation for retrieval" .-> TOOL_OWN
+    REFL_OWN -. "must stay separate from\nassess_sufficiency" .-> ARAG_OWN
+    HITL_OWN -. "must not gate\nnon-speculative answers" .-> RAG_OWN
+```
+
 ## Success metrics
 
 No product metrics apply (no users to adopt/activate/retain). Success is

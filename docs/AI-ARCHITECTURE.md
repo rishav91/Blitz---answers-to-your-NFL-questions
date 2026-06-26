@@ -47,6 +47,17 @@ the agentic-retrieval loop or invokes a tool. This keeps LLM/tool-call volume
 proportional to question complexity rather than running every path's full
 machinery on every question.
 
+```mermaid
+flowchart LR
+    Q([User Question]) --> R{"router_node\nroutes by\nquestion complexity"}
+
+    R -->|"factual"| F["Factual Path\nretrieval_node\n-> generation_node\n-> reflection_node\n· 1 retrieval hop\n· 0 tool calls\n· lowest LLM volume"]
+
+    R -->|"analytical"| A["Analytical Path\nagentic_retrieval_node loop\n-> generation_node + tools\n-> reflection_node\n· up to 2 retrieval hops\n· 1 or more tool calls\n· higher LLM volume"]
+
+    R -->|"predictive"| P["Predictive Path\nretrieval_node\n-> hitl_node human gate\n-> generation_node\n· requires confirmation\n· speculative output only\n· highest stakes"]
+```
+
 ## RAG / retrieval & grounding
 
 - **Source:** `games` schedules (2021–2023), chunked one-game-per-chunk,
@@ -71,6 +82,32 @@ machinery on every question.
 | Conference standings | Deterministic — pandas aggregation over `games` in `get_standings` |
 | Intent classification | LLM (or keyword match, see table above) |
 | Sufficiency judgment, tool-call planning, answer synthesis, reflection scoring, HITL reasoning sketch, speculative prediction | LLM |
+
+```mermaid
+flowchart LR
+    subgraph DET ["🔢 Deterministic — always the same answer for the same inputs"]
+        direction TB
+        D1["Exact game lookup\nChroma metadata where filter\nseason · game_type · week"]
+        D2["Stats aggregation\npandas · calculate_team_stats\npoints · yards · turnovers · 3rd-down · red-zone"]
+        D3["Conference standings\npandas · get_standings"]
+    end
+
+    subgraph ML ["📐 ML — embedding similarity, not LLM"]
+        direction TB
+        M1["Team-name disambiguation\nUnderspecified game resolution\ntext-embedding-3-small cosine similarity"]
+    end
+
+    subgraph LLM ["🧠 LLM — Claude via init_chat_model"]
+        direction TB
+        L1["Intent classification · router_node"]
+        L2["Sufficiency judgment + refined query\nassess_sufficiency · agentic_retrieval_node"]
+        L3["Tool-call planning · generation_node · analytical path"]
+        L4["Answer synthesis · generation_node · all paths"]
+        L5["Grounding + coverage judgment · reflection_node"]
+        L6["Reasoning sketch before interrupt · hitl_node"]
+        L7["Speculative prediction · generation_node · post-confirm"]
+    end
+```
 
 ## Safety
 

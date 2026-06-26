@@ -26,43 +26,55 @@ alternatives.
 
 ## High-level architecture
 
-```
-[START]
-   |
-[router_node]              -- classifies intent: factual / analytical / predictive
-   |
-   |-- factual ----------> [retrieval_node]          -- hybrid query: metadata filter + semantic search
-   |                              |
-   |                       [generation_node]          -- answers from the one retrieved chunk
-   |                              |
-   |                       [reflection_node]          -- grounding + coverage check
-   |                              |   grounding failure -> back to generation_node, correction instruction
-   |                              |   coverage failure  -> back to retrieval_node, refined query
-   |                              |   (shared budget: max 2 retries total across both edges, NFR-1)
-   |                              v   pass
-   |                       [response_node]
-   |
-   |-- analytical -------> [agentic_retrieval_node]   -- retrieve -> assess_sufficiency loop (max 2, NFR-2, Assumption)
-   |                              |   not enough context -> refine query, retrieve again
-   |                              v
-   |                       [generation_node]          -- tool use: calculate_team_stats / get_standings
-   |                              |
-   |                       [reflection_node]          -- same grounding + coverage check
-   |                              |   grounding failure -> back to generation_node, correction instruction
-   |                              |   coverage failure  -> back to agentic_retrieval_node, refined query
-   |                              v   pass
-   |                       [response_node]
-   |
-   |-- predictive -------> [retrieval_node]           -- grounding stats only, no recommendation yet
-   |                              |
-   |                       [hitl_node]                -- interrupt(): show data + reasoning, wait for confirm
-   |                              |   declined -> response_node ("not generating a prediction")
-   |                              v   confirmed
-   |                       [generation_node]          -- now allowed to produce the speculative answer
-   |                              |
-   |                       [response_node]
-   |
-[END]
+```mermaid
+flowchart TD
+    Q([User Question]) --> ROUTER{router_node\nclassify intent}
+
+    ROUTER -->|factual| RN
+    ROUTER -->|analytical| ARN
+    ROUTER -->|predictive| RNP
+
+    subgraph FACTUAL ["① Factual Path — RAG + Reflection"]
+        direction TB
+        RN["retrieval_node\nhybrid: metadata filter + semantic search"]
+        GNF["generation_node\nno tool calls"]
+        REFF["reflection_node\ngrounding + coverage check\nshared budget · max 2 retries"]
+        RN --> GNF --> REFF
+        REFF -->|grounding fail| GNF
+        REFF -->|coverage fail| RN
+    end
+
+    subgraph ANALYTICAL ["② Analytical Path — Agentic RAG + Tools + Reflection"]
+        direction TB
+        ARN["agentic_retrieval_node\nretrieve -> assess_sufficiency\nrefine & retry · max 2"]
+        GNA["generation_node\ncalculate_team_stats / get_standings"]
+        REFA["reflection_node\ngrounding + coverage check\nshared budget · max 2 retries"]
+        ARN -->|not sufficient| ARN
+        ARN -->|sufficient| GNA
+        GNA --> REFA
+        REFA -->|grounding fail| GNA
+        REFA -->|coverage fail| ARN
+    end
+
+    subgraph PREDICTIVE ["③ Predictive Path — HITL"]
+        direction TB
+        RNP["retrieval_node\ngrounding stats only"]
+        HITL["hitl_node\ninterrupt · show data + reasoning sketch\nwait for user confirmation"]
+        GNP["generation_node\nspeculative answer"]
+        RNP --> HITL
+        HITL -->|confirmed| GNP
+    end
+
+    REFF -->|pass| RESP[response_node]
+    REFA -->|pass| RESP
+    GNP --> RESP
+    HITL -->|declined| RESP
+    RESP --> END([Answer to User])
+
+    INGEST[/"ingest.py\none-time setup"/] -.->|"embeds ~800 game chunks\ntext-embedding-3-small"| CHROMA[("ChromaDB\n./chroma_db")]
+    CHROMA -.-> RN
+    CHROMA -.-> ARN
+    CHROMA -.-> RNP
 ```
 
 `ingest_node` is not in this graph — it's the one-time setup script
@@ -83,6 +95,62 @@ alternatives.
 | `response_node` | Terminal formatting/return to UI | — | — |
 | `MemorySaver` checkpointer | Persists graph state across the interrupt/resume boundary | in-process | HITL (`FR-5.x`) |
 | Streamlit UI | Chat loop, `st.status` step visibility, imports compiled graph directly | — | — |
+
+### Data-source routing (ADR-007)
+
+Two data sources, two access patterns — the boundary between them is structural (which store the data lives in), not a prompting convention.
+
+```mermaid
+flowchart LR
+    subgraph SRC ["Data Sources — nfl_data_py"]
+        GAMES[/"games\n~800 rows · 2021-2023\none row per game"/]
+        PBP[/"pbp  play-by-play\n~50k rows · 2023\none row per play"/]
+    end
+
+    subgraph STORES ["Storage"]
+        CHROMA[("ChromaDB\nPersistentClient\n./chroma_db")]
+        MEM[("In-memory\nDataFrame\nloaded at startup")]
+    end
+
+    subgraph NODES ["Graph Nodes & Tools"]
+        RETR["retrieval_node\nagentic_retrieval_node"]
+        GEN["generation_node\ncoordinates tool use"]
+        CTS["calculate_team_stats\npoints · yards · turnovers\n3rd-down · red-zone"]
+        GS["get_standings\nconference standings"]
+    end
+
+    GAMES -- "ingest.py · one-time setup\nembedded: text-embedding-3-small\nmetadata: season game_type week teams" --> CHROMA
+    PBP -- "loaded per process start\nnot embedded · never in Chroma" --> MEM
+
+    CHROMA -- "hybrid query\nwhere filter + similarity search" --> RETR
+    MEM --> CTS
+    MEM --> GS
+    RETR --> GEN
+    CTS --> GEN
+    GS --> GEN
+```
+
+### Loop separation (ADR-004)
+
+Two loops both route back to retrieval — but they ask different questions at different times and must stay separate (see [ADR-004](ADRs.md#adr-004)).
+
+```mermaid
+flowchart LR
+    subgraph SUFF ["Sufficiency Loop — inside agentic_retrieval_node · runs BEFORE generation · capped NFR-2"]
+        direction LR
+        R1["retrieve from ChromaDB"] --> AS{"assess_sufficiency\n'Do I have enough\ncontext to generate?'"}
+        AS -->|"not sufficient · refine query"| R1
+        AS -->|"sufficient · max 2 attempts"| G1(["proceed to generation_node"])
+    end
+
+    subgraph REFL ["Reflection Retry Loop — reflection_node · runs AFTER generation · budget NFR-1"]
+        direction LR
+        GN["generation_node\ndraft answer"] --> RF{"reflection_node\n'Does the draft\nhold up?'"}
+        RF -->|"grounding fail\nnumber not in source"| GN
+        RF -->|"coverage fail\ncontext incomplete"| RT(["back to retrieval node"])
+        RF -->|"pass"| RS(["response_node"])
+    end
+```
 
 ## Key flows
 

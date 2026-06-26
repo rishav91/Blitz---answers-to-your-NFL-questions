@@ -97,6 +97,21 @@ no-prediction response rather than a partial one.
 
 ## Sequencing rationale
 
+```mermaid
+flowchart LR
+    P0["Phase 0  ~2 hrs\nIngestion Pipeline\nnfl_data_py -> ChromaDB\ntext-embedding-3-small\nverify: metadata filters"]
+
+    P1["Phase 1  ~3 hrs\nFactual Path\nrouter + retrieval_node\n+ generation_node\n+ reflection_node + Streamlit UI\nverify: UC-4 · UC-5 · UC-6"]
+
+    P2["Phase 2  ~3 hrs\nAnalytical Path\nagentic_retrieval_node\n+ calculate_team_stats\n+ get_standings\nverify: UC-2 · UC-3"]
+
+    P3["Phase 3  ~2 hrs\nPredictive Path\nhitl_node via interrupt\n+ UI polish\nverify: UC-7"]
+
+    P0 -->|"queryable corpus\nmetadata filters verified\nunblocks all LLM nodes"| P1
+    P1 -->|"in-process Streamlit proven\nhybrid retrieval + reflection working\nhappy path + both retry edges"| P2
+    P2 -->|"multi-hop + tool calls known-good\ngraph + checkpointer stable"| P3
+```
+
 Simplest-pattern-pair first (Phase 1), then the two patterns most likely to
 expose a design flaw (Phase 2: multi-hop dependency, multi-tool-call
 synthesis), then the pattern that structurally depends on everything else
