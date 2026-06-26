@@ -1,0 +1,14 @@
+# Phase 0 — ingestion pipeline only. Later phases (LangGraph, Streamlit,
+# tool calling) add their deps when those phases start.
+nfl_data_py==0.3.3
+pandas==3.0.3
+numpy==2.4.6
+chromadb==1.5.9
+openai==2.44.0
+python-dotenv==1.2.2
+
+# nfl_data_py's actual runtime deps; installed with --no-deps because its
+# declared pandas<2.0/numpy<2.0 pin is stale (predates pandas 2.0) and
+# conflicts with the versions above, which it runs fine against.
+appdirs==1.4.4
+fastparquet==2026.5.0
