@@ -1,0 +1,12 @@
+project.md
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Secrets
+.env
+
+# Local vector store
+chroma_db/
