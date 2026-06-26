@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from graph.llm import get_chat_model
+from graph.observability import get_requests_counter, traced_node
 from graph.state import GraphState
 
 ROUTER_PROMPT = """Classify this NFL question into exactly one category:
@@ -28,9 +29,11 @@ class RouterDecision(BaseModel):
     )
 
 
+@traced_node("router_node")
 def router_node(state: GraphState) -> dict:
     model = get_chat_model().with_structured_output(RouterDecision)
     decision = model.invoke(ROUTER_PROMPT.format(question=state["question"]))
+    get_requests_counter().add(1, {"intent": decision.intent})
     return {"intent": decision.intent}
 
 

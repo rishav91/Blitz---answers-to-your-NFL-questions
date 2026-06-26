@@ -5,6 +5,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from graph.llm import get_chat_model
+from graph.observability import traced_node
 from graph.state import GraphState
 from graph.store import build_where, query_games
 
@@ -46,6 +47,7 @@ def format_context(matches: list[dict]) -> str:
     return "\n\n".join(blocks)
 
 
+@traced_node("retrieval_node")
 def retrieval_node(state: GraphState) -> dict:
     is_retry = state.get("last_failure") == "coverage"
     broaden_hint = BROADEN_HINT.format(reason=state.get("failure_reason", "")) if is_retry else ""

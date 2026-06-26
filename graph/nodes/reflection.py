@@ -3,6 +3,7 @@
 from pydantic import BaseModel, Field
 
 from graph.llm import get_chat_model
+from graph.observability import get_reflection_outcome_counter, traced_node
 from graph.state import MAX_REFLECTION_RETRIES, GraphState
 
 REFLECTION_PROMPT = """Check this drafted answer against the context it was generated from.
@@ -41,6 +42,7 @@ class ReflectionJudgment(BaseModel):
     reason: str = Field(description="One or two sentences explaining the judgment")
 
 
+@traced_node("reflection_node")
 def reflection_node(state: GraphState) -> dict:
     model = get_chat_model().with_structured_output(ReflectionJudgment)
     judgment = model.invoke(
@@ -52,17 +54,20 @@ def reflection_node(state: GraphState) -> dict:
     )
 
     if judgment.grounded and judgment.covers_question:
+        get_reflection_outcome_counter().add(1, {"outcome": "pass", "failure_kind": "none"})
         return {"last_failure": None, "final_answer": state["draft_answer"]}
 
+    failure_kind = "grounding" if not judgment.grounded else "coverage"
     retry_count = state.get("retry_count", 0)
     if retry_count >= MAX_REFLECTION_RETRIES:
+        get_reflection_outcome_counter().add(1, {"outcome": "exhausted", "failure_kind": failure_kind})
         caveat = (
             "\n\n(Note: this answer could not be fully verified after retrying — "
             f"treat with caution: {judgment.reason})"
         )
         return {"last_failure": None, "final_answer": state["draft_answer"] + caveat}
 
-    failure_kind = "grounding" if not judgment.grounded else "coverage"
+    get_reflection_outcome_counter().add(1, {"outcome": "retry", "failure_kind": failure_kind})
     return {"retry_count": retry_count + 1, "last_failure": failure_kind, "failure_reason": judgment.reason}
 
 

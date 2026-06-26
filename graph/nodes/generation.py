@@ -2,6 +2,7 @@
 (FR-1.x; the factual path stays tool-free per PRD.md §Scope, governing rule)."""
 
 from graph.llm import get_chat_model
+from graph.observability import traced_node
 from graph.state import GraphState
 
 GENERATION_PROMPT = """Answer the question using ONLY the information in the context below. \
@@ -27,6 +28,7 @@ CORRECTION_TEMPLATE = (
 )
 
 
+@traced_node("generation_node")
 def generation_node(state: GraphState) -> dict:
     model = get_chat_model()
     prompt = GENERATION_PROMPT.format(context=state["context"], question=state["question"])
