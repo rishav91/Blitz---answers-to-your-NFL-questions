@@ -4,19 +4,31 @@ Four phases, each ends with something runnable — see
 [PRD.md §Success metrics](PRD.md#success-metrics), organized by phase
 goal/unlock/rationale.
 
-## Phase 0 — Ingestion pipeline (~2 hrs)
+## Status at a glance
+
+- [x] Phase 0 — Ingestion pipeline
+- [x] Phase 1 — Factual path: RAG + Reflection (UC-4/5/6 verification not recorded — see below)
+- [x] Cross-cutting — Observability layer
+- [ ] Phase 2 — Analytical path: Agentic RAG + tools **← next**
+- [ ] Phase 3 — Predictive path: HITL + UI polish
+
+**Working convention:** each phase is broken into commit-sized sub-phases
+below. A sub-phase is done when its change lands as its own git commit;
+completed sub-phases reference the commit that shipped them.
+
+## Phase 0 — Ingestion pipeline (~2 hrs) ✅
 
 **Goal:** the walking skeleton — a queryable Chroma corpus, before any graph
 exists.
 
-**Ships:**
-- `nfl_data_py` schedules loaded for 2021–2023
-- Chunk formatter: one game = one text string (score, week, venue, surface,
-  roof — only fields that exist in `games`, per `FR-1.2`)
-- `season`, `game_type`, `week`, `home_team`, `away_team` attached as Chroma
-  metadata alongside the embedded text
-- Corpus embedded with `text-embedding-3-small`, upserted to
-  `chromadb.PersistentClient` (`NFR-3`)
+**Sub-phases:**
+- [x] 0.1 — Ingestion pipeline end-to-end: `nfl_data_py` schedules for
+  2021–2023, chunk formatter (one game = one text string: score, week, venue,
+  surface, roof — only fields that exist in `games`, per `FR-1.2`),
+  `season`/`game_type`/`week`/`home_team`/`away_team` as Chroma metadata,
+  corpus embedded with `text-embedding-3-small` and upserted to
+  `chromadb.PersistentClient` (`NFR-3`), with a built-in metadata-filter
+  verify step — `522bcad`
 
 **Unlocks:** every later phase depends on this corpus existing and being
 metadata-filterable; nothing downstream can be tested without it.
@@ -26,20 +38,32 @@ metadata-filterable; nothing downstream can be tested without it.
 criterion) — this is the cheapest possible check that `ADR-003`'s hybrid
 filter will actually work before any LLM is involved.
 
-## Phase 1 — Factual path end-to-end: RAG + Reflection (~3 hrs)
+## Phase 1 — Factual path end-to-end: RAG + Reflection (~3 hrs) ✅
 
 **Goal:** the first full pattern pair, chosen first because it's the
 simplest — no tool calls, no multi-hop loop, no interrupt.
 
-**Ships:**
-- LangGraph skeleton: `router_node` (analytical/predictive branches stubbed),
-  `retrieval_node`, `generation_node`; compiled with `MemorySaver`
-- `retrieval_node`'s hybrid split (`FR-1.1`): filter on stated
-  season/game_type/week, semantic query on the rest
-- `ui/app.py` wired directly to the compiled graph — `graph.stream(...)`
-  with a `thread_id`, no backend (`ADR-002`)
-- `reflection_node` with both retry edges (`FR-4.2`, `FR-4.3`), shared
-  budget (`NFR-1`)
+**Sub-phases:**
+- [x] 1.1 — LangGraph/LangChain/Streamlit deps + provider-agnostic chat
+  model config via `init_chat_model` (`ADR-006`) — `6c76e91`
+- [x] 1.2 — Shared `GraphState`, `get_chat_model` wrapper, read access to
+  the Chroma `games` collection — `68b71af`
+- [x] 1.3 — `router_node` (factual/analytical/predictive classification,
+  `FR-0.1`) + placeholder nodes for the un-built Phase 2/3 branches —
+  `405e945`
+- [x] 1.4 — `retrieval_node`'s hybrid split (`FR-1.1`): filter on stated
+  season/game_type/week, semantic query on the rest; broadened search on
+  coverage retries — `b5ad64a`
+- [x] 1.5 — `generation_node` + `reflection_node` with both retry edges
+  (`FR-4.2`, `FR-4.3`) and the shared 2-retry budget (`NFR-1`), plus
+  `response_node` — `573fada`
+- [x] 1.6 — Compile the graph with `MemorySaver`; `ui/app.py` wired directly
+  to the compiled graph with a `thread_id`, no backend (`ADR-002`) —
+  `e1ff663`
+- [ ] 1.7 — Record the verify pass: UC-4, UC-5, UC-6 (see **Verify** below).
+  The path works in manual use, but no verification run is recorded —
+  retire this before calling Phase 2 done, since Phase 2 reuses
+  `reflection_node` and retargets its coverage edge.
 
 **Unlocks:** proves the no-backend, in-process Streamlit + checkpointer
 setup (`ADR-002`) works at all, before adding the complexity of tool calling
@@ -50,20 +74,26 @@ or interrupts on top of it. Also proves the hybrid retrieval split
 UC-6 (grounding-failure route fires) — confirms both reflection edges
 actually trigger, not just the happy path.
 
-## Phase 2 — Analytical path: Agentic RAG + tools (~3 hrs)
+## Phase 2 — Analytical path: Agentic RAG + tools (~3 hrs) ⬅ next
 
 **Goal:** add the two more complex patterns — multi-hop retrieval and tool
 calling — onto a graph already proven to work end-to-end on the simpler path.
 
-**Ships:**
-- `agentic_retrieval_node`: retrieve → `assess_sufficiency` →
+**Sub-phases:**
+- [ ] 2.1 — `pbp` data access: play-by-play loaded into an in-memory
+  DataFrame at startup, tools-only, never embedded (`ADR-007`)
+- [ ] 2.2 — `calculate_team_stats` tool over the `pbp` DataFrame (`FR-3.1`);
+  no `compare_teams` — comparisons are two calls (`ADR-005`)
+- [ ] 2.3 — `get_standings` tool (`FR-3.2`)
+- [ ] 2.4 — `agentic_retrieval_node`: retrieve → `assess_sufficiency` →
   refine-and-retrieve loop (`FR-2.1`, capped per `NFR-2`)
-- `calculate_team_stats` and `get_standings` tools (`FR-3.1`, `FR-3.2`),
-  wired into `generation_node`
-- `router_node`'s analytical conditional edge now live
-- `reflection_node` reused on this path; coverage-failure edge retargeted to
-  `agentic_retrieval_node` (not `retrieval_node`), grounding-failure edge
-  unchanged (`ADR-004`)
+- [ ] 2.5 — Wire the analytical branch live: tools bound into
+  `generation_node`, `router_node`'s analytical conditional edge pointed at
+  the real path, `analytical_stub_node` removed; `reflection_node` reused
+  with its coverage-failure edge retargeted to `agentic_retrieval_node`
+  (not `retrieval_node`), grounding-failure edge unchanged (`ADR-004`)
+- [ ] 2.6 — Verify pass: UC-2 and UC-3 (see **Verify** below), plus the
+  Phase 1 backlog item 1.7 if still open
 
 **Unlocks:** the two-hop dependent query (UC-2) and the multi-tool-call
 comparison (UC-3) — the patterns most likely to reveal a design flaw, now
@@ -80,11 +110,17 @@ distinct `calculate_team_stats` calls in one turn, not a single bundled call
 HITL gates a *generation* step, so retrieval, tools, and the overall
 graph/checkpointer plumbing need to already be trustworthy.
 
-**Ships:**
-- `router_node`'s predictive conditional edge
-- `hitl_node` via `interrupt()`, placed before `generation_node` (`FR-5.1`)
-- Streamlit polish: team selector, chat window, `st.status` step visibility
-- End-to-end demo across all three branches
+**Sub-phases:**
+- [ ] 3.1 — `hitl_node` via `interrupt()`, placed before `generation_node`
+  (`FR-5.1`); `router_node`'s predictive conditional edge pointed at it,
+  `predictive_stub_node` removed
+- [ ] 3.2 — Streamlit interrupt/resume wiring: surface the confirmation to
+  the user, resume on confirm, return `FR-5.2`'s no-prediction response on
+  decline — no speculative text before confirmation
+- [ ] 3.3 — Streamlit polish: team selector, chat window, `st.status` step
+  visibility
+- [ ] 3.4 — End-to-end demo across all three branches; verify pass: UC-7
+  (see **Verify** below)
 
 **Unlocks:** nothing further — this is the last phase. Sequenced last
 because debugging an `interrupt()`/resume issue is harder when the rest of
@@ -120,7 +156,7 @@ and tools both proven). This order means a timebox slip surfaces against the
 *cheapest* patterns first, not the most expensive ones — see [PRD.md
 §Risks](PRD.md#risks).
 
-## Cross-cutting — Observability layer
+## Cross-cutting — Observability layer ✅
 
 Added after Phase 1 landed, orthogonal to the five-pattern phase sequence
 above rather than its own numbered phase: OpenTelemetry traces/metrics/logs
@@ -129,3 +165,14 @@ on every existing node, visualized in Tempo/Prometheus/Loki/Grafana (see
 The `traced_node` decorator pattern carries forward automatically as Phase
 2/3 nodes get built — they inherit it the same way `analytical_stub_node`/
 `predictive_stub_node` already do.
+
+**Sub-phases:**
+- [x] O.1 — ADR-008 + PRD reword distinguishing dev-time transparency from
+  production monitoring — `d84bcb1`
+- [x] O.2 — Docker observability stack: OTel Collector, Tempo, Prometheus,
+  Loki, Grafana with trace-to-logs/metrics correlation and a starter
+  dashboard — `67006a4`
+- [x] O.3 — `traced_node` decorator on every graph node + request/reflection
+  counters; LLM calls auto-traced via LangChain instrumentation — `af873e6`
+- [x] O.4 — Per-answer tracing in the Streamlit UI: Reasoning trail expander
+  and Grafana trace deep link — `a346039`
