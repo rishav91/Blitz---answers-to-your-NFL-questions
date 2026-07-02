@@ -80,8 +80,11 @@ actually trigger, not just the happy path.
 calling — onto a graph already proven to work end-to-end on the simpler path.
 
 **Sub-phases:**
-- [ ] 2.1 — `pbp` data access: play-by-play loaded into an in-memory
-  DataFrame at startup, tools-only, never embedded (`ADR-007`)
+- [x] 2.1 — `pbp` data access (`graph/nfl_data.py`): play-by-play (2023,
+  trimmed to the columns FR-3.1 needs), completed `games`, and the
+  team→conference map, all lazy in-memory DataFrames, tools-only, never
+  embedded (`ADR-007`); parquet-cached under `.nfl_cache/` so process
+  restarts skip the download
 - [ ] 2.2 — `calculate_team_stats` tool over the `pbp` DataFrame (`FR-3.1`);
   no `compare_teams` — comparisons are two calls (`ADR-005`)
 - [ ] 2.3 — `get_standings` tool (`FR-3.2`)
