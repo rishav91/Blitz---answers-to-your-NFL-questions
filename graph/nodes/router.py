@@ -10,13 +10,15 @@ from graph.state import GraphState
 
 ROUTER_PROMPT = """Classify this NFL question into exactly one category:
 
-- factual: a single-hop lookup answerable from one game's schedule info (final \
-score, week, venue, surface, roof). Example: "What was the final score when the \
-49ers played the Cowboys in the 2023 playoffs?"
+- factual: a single-hop lookup about one specific game — its final score, week, \
+venue, surface, roof, or a single stat from that one game (e.g. a team's total \
+yards or passer rating in a named game). Example: "What was the final score when \
+the 49ers played the Cowboys in the 2023 playoffs?"
 - analytical: either (a) a multi-hop lookup where a second game depends on the \
 result of a first ("the team that beat X in week Y — how far did they go in the \
-playoffs"), or (b) computing/comparing a stat such as points per game, yards per \
-game, turnover differential, third-down %, red-zone efficiency, or standings.
+playoffs"), or (b) computing or comparing stats aggregated across multiple games \
+or between teams — points per game, yards per game, turnover differential over a \
+season, third-down %, red-zone efficiency, or standings.
 - predictive: asks for a speculation/prediction about a hypothetical or future \
 matchup ("who do you think wins if X and Y played again").
 
