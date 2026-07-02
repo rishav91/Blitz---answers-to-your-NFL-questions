@@ -84,9 +84,13 @@ calling — onto a graph already proven to work end-to-end on the simpler path.
   trimmed to the columns FR-3.1 needs), completed `games`, and the
   team→conference map, all lazy in-memory DataFrames, tools-only, never
   embedded (`ADR-007`); parquet-cached under `.nfl_cache/` so process
-  restarts skip the download
-- [ ] 2.2 — `calculate_team_stats` tool over the `pbp` DataFrame (`FR-3.1`);
-  no `compare_teams` — comparisons are two calls (`ADR-005`)
+  restarts skip the download — `74466ff`
+- [x] 2.2 — `calculate_team_stats` tool over the `pbp` DataFrame (`FR-3.1`):
+  all five metrics, regular-season scope, fumble attribution by
+  fumbling/recovering team; verified against the 2023 public record (KC 371
+  pts / 21.8 ppg, KC −11 / SF +10 turnover diff) and cross-checked against
+  the `games` DataFrame for all 32 teams. No `compare_teams` — comparisons
+  are two calls (`ADR-005`)
 - [ ] 2.3 — `get_standings` tool (`FR-3.2`)
 - [ ] 2.4 — `agentic_retrieval_node`: retrieve → `assess_sufficiency` →
   refine-and-retrieve loop (`FR-2.1`, capped per `NFR-2`)

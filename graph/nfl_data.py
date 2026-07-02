@@ -26,7 +26,7 @@ PBP_COLUMNS = [
     "game_id", "season", "season_type", "week",
     "home_team", "away_team", "home_score", "away_score",
     "posteam", "defteam", "yards_gained",
-    "interception", "fumble_lost",
+    "interception", "fumble_lost", "fumbled_1_team", "fumble_recovery_1_team",
     "down", "third_down_converted", "third_down_failed",
     "yardline_100", "fixed_drive", "fixed_drive_result",
 ]
