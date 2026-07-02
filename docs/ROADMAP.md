@@ -95,8 +95,12 @@ calling — onto a graph already proven to work end-to-end on the simpler path.
   aggregated from the `games` DataFrame only (no `pbp`), win-pct ordering
   with ties handled; verified against 2023 (BAL 13-4) and 2022 (HOU 3-13-1)
   public standings
-- [ ] 2.4 — `agentic_retrieval_node`: retrieve → `assess_sufficiency` →
-  refine-and-retrieve loop (`FR-2.1`, capped per `NFR-2`)
+- [x] 2.4 — `agentic_retrieval_node`: retrieve → `assess_sufficiency` →
+  refine-and-retrieve loop (`FR-2.1`, capped per `NFR-2` = initial hop + 2
+  refinements), loop fully inside the node (`ADR-004`), coverage retries
+  re-enter with the reflection reason as a hint. Control flow (cap, early
+  exit, refined-query plumbing, dedup) verified deterministically without
+  APIs; live LLM/corpus behavior lands with 2.6's UC-2 verify
 - [ ] 2.5 — Wire the analytical branch live: tools bound into
   `generation_node`, `router_node`'s analytical conditional edge pointed at
   the real path, `analytical_stub_node` removed; `reflection_node` reused
