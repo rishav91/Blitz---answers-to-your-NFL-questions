@@ -91,7 +91,10 @@ calling — onto a graph already proven to work end-to-end on the simpler path.
   pts / 21.8 ppg, KC −11 / SF +10 turnover diff) and cross-checked against
   the `games` DataFrame for all 32 teams. No `compare_teams` — comparisons
   are two calls (`ADR-005`)
-- [ ] 2.3 — `get_standings` tool (`FR-3.2`)
+- [x] 2.3 — `get_standings` tool (`FR-3.2`): W-L-T per conference/season
+  aggregated from the `games` DataFrame only (no `pbp`), win-pct ordering
+  with ties handled; verified against 2023 (BAL 13-4) and 2022 (HOU 3-13-1)
+  public standings
 - [ ] 2.4 — `agentic_retrieval_node`: retrieve → `assess_sufficiency` →
   refine-and-retrieve loop (`FR-2.1`, capped per `NFR-2`)
 - [ ] 2.5 — Wire the analytical branch live: tools bound into

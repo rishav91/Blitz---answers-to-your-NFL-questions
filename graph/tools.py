@@ -12,7 +12,7 @@ from typing import Literal
 
 from langchain_core.tools import tool
 
-from graph.nfl_data import PBP_SEASONS, get_pbp
+from graph.nfl_data import GAMES_SEASONS, PBP_SEASONS, get_games, get_pbp, get_team_conference
 
 # Reverse of data/ingest.py's TEAM_NAMES, so the model can pass either an
 # abbreviation ("KC") or a nickname ("Chiefs").
@@ -108,3 +108,48 @@ def calculate_team_stats(team: str, season: int, metric: Metric) -> dict:
         result.update(value=round(100 * tds / len(drives), 1), td_drives=tds, red_zone_trips=len(drives))
 
     return result
+
+
+@tool
+def get_standings(conference: Literal["AFC", "NFC"], season: int) -> dict:
+    """Regular-season conference standings: every team's W-L-T record,
+    ordered by win percentage. Aggregated from game results only.
+
+    Ordering breaks win-pct ties by wins, not the NFL's official tiebreaker
+    rules (head-to-head, division record, etc.) — say so if seeding hinges
+    on a tie.
+
+    Args:
+        conference: "AFC" or "NFC".
+        season: Season year (the year the season started), 2021-2023.
+    """
+    if season not in GAMES_SEASONS:
+        return {"error": f"No games loaded for season {season}. Available seasons: {GAMES_SEASONS}."}
+
+    games = get_games()
+    reg = games[(games["season"] == season) & (games["game_type"] == "REG")]
+    conferences = get_team_conference()
+
+    records: dict[str, dict] = {}
+    for row in reg.itertuples():
+        if row.home_score > row.away_score:
+            winner, loser = row.home_team, row.away_team
+        elif row.away_score > row.home_score:
+            winner, loser = row.away_team, row.home_team
+        else:
+            winner = loser = None
+        for team in (row.home_team, row.away_team):
+            rec = records.setdefault(team, {"team": team, "wins": 0, "losses": 0, "ties": 0})
+            if winner is None:
+                rec["ties"] += 1
+            elif team == winner:
+                rec["wins"] += 1
+            else:
+                rec["losses"] += 1
+
+    table = [rec for rec in records.values() if conferences.get(rec["team"]) == conference]
+    for rec in table:
+        played = rec["wins"] + rec["losses"] + rec["ties"]
+        rec["win_pct"] = round((rec["wins"] + 0.5 * rec["ties"]) / played, 3)
+    table.sort(key=lambda rec: (rec["win_pct"], rec["wins"]), reverse=True)
+    return {"conference": conference, "season": season, "scope": "regular season", "standings": table}
