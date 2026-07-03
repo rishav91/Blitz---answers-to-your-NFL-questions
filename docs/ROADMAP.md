@@ -7,7 +7,7 @@ goal/unlock/rationale.
 ## Status at a glance
 
 - [x] Phase 0 — Ingestion pipeline
-- [x] Phase 1 — Factual path: RAG + Reflection (UC-4/5/6 verification not recorded — see below)
+- [x] Phase 1 — Factual path: RAG + Reflection (UC-4/5/6 verify pass recorded — see 1.7)
 - [x] Cross-cutting — Observability layer
 - [ ] Phase 2 — Analytical path: Agentic RAG + tools **← next**
 - [ ] Phase 3 — Predictive path: HITL + UI polish
@@ -60,10 +60,27 @@ simplest — no tool calls, no multi-hop loop, no interrupt.
 - [x] 1.6 — Compile the graph with `MemorySaver`; `ui/app.py` wired directly
   to the compiled graph with a `thread_id`, no backend (`ADR-002`) —
   `e1ff663`
-- [ ] 1.7 — Record the verify pass: UC-4, UC-5, UC-6 (see **Verify** below).
-  The path works in manual use, but no verification run is recorded —
-  retire this before calling Phase 2 done, since Phase 2 reuses
-  `reflection_node` and retargets its coverage edge.
+- [x] 1.7 — Recorded the verify pass: UC-4, UC-5, UC-6 (see **Verify**
+  below), run against the live graph (`CHAT_MODEL_PROVIDER=groq`,
+  `llama-3.3-70b-versatile`). UC-4 and UC-6 both passed reflection cleanly
+  on every run (3/3 each): the corpus genuinely has no offensive-yards or
+  passer-rating fields (`FR-1.2`'s chunk template is score/week/venue/
+  surface/roof only), and the model correctly said so instead of
+  hallucinating, satisfying `FR-4.1`/`FR-4.3`'s "not available" pass
+  branch. UC-5 did **not** trigger `FR-4.2`'s coverage-failure retry in 6
+  runs; instead the variance showed up one step earlier, in `retrieval_node`'s
+  season extraction — 4/6 runs correctly resolved "2023" to `season=2023`
+  (the actual Week 11 REG game, Eagles 21–17, verified against the public
+  record) and the other 2/6 resolved it to the Super Bowl chunk
+  (`season=2022` per the season-start convention) and produced a
+  hedging/wrong answer that reflection accepted without retry. This is the
+  same run-to-run reflection-judgment inconsistency observed earlier under
+  Groq's `llama-3.3-70b-versatile` (UC-1 testing during Phase 1 build-out)
+  — a known, accepted model-quality limitation of the smaller/faster
+  provider, not a fresh regression — but it does mean the coverage-edge
+  retry itself remains unobserved firing; revisit if Phase 2/3 testing
+  needs that edge proven live, or reconfirm against `CHAT_MODEL_PROVIDER=
+  anthropic` if the inconsistency needs to be isolated from the model choice.
 
 **Unlocks:** proves the no-backend, in-process Streamlit + checkpointer
 setup (`ADR-002`) works at all, before adding the complexity of tool calling
@@ -100,7 +117,7 @@ calling — onto a graph already proven to work end-to-end on the simpler path.
   refinements), loop fully inside the node (`ADR-004`), coverage retries
   re-enter with the reflection reason as a hint. Control flow (cap, early
   exit, refined-query plumbing, dedup) verified deterministically without
-  APIs; live LLM/corpus behavior lands with 2.6's UC-2 verify
+  APIs; live LLM/corpus behavior lands with 2.6's UC-2 verify — `69633a2`
 - [ ] 2.5 — Wire the analytical branch live: tools bound into
   `generation_node`, `router_node`'s analytical conditional edge pointed at
   the real path, `analytical_stub_node` removed; `reflection_node` reused
