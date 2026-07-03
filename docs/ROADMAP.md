@@ -81,6 +81,23 @@ simplest — no tool calls, no multi-hop loop, no interrupt.
   retry itself remains unobserved firing; revisit if Phase 2/3 testing
   needs that edge proven live, or reconfirm against `CHAT_MODEL_PROVIDER=
   anthropic` if the inconsistency needs to be isolated from the model choice.
+  **Re-run against `CHAT_MODEL_PROVIDER=openai`, `gpt-5.4-mini`** (same
+  14-invocation batch) showed a near-inverse failure profile: UC-5 went
+  6/6 clean and correct — the season=2022/2023 ambiguity that tripped up
+  Groq didn't recur once. But UC-4 went only 1/4 clean (3/4 burned the
+  full `MAX_REFLECTION_RETRIES` budget) and UC-6 went 0/4 clean (4/4
+  burned it), both shipping with an unwarranted "treat with caution"
+  caveat on an answer that was honest and correct throughout. Root cause:
+  `gpt-5.4-mini`'s `covers_question` judgment reads more literally than
+  Groq's — it marks `covers_question=False` whenever the specific stat
+  isn't in the chunk, even when the answer correctly identified the right
+  game and honestly declined, diverging from `REFLECTION_PROMPT`'s
+  explicit definition ("not whether the chunk explicitly spells out every
+  word of the question"). **Flagged, not fixed**: this is a real
+  cross-provider divergence in how `covers_question` gets interpreted and
+  a legitimate prompt-tightening candidate, but neither provider's failure
+  mode blocks Phase 2, so leaving `reflection.py`'s wording as-is for now
+  — revisit before picking a default provider for real use.
 
 **Unlocks:** proves the no-backend, in-process Streamlit + checkpointer
 setup (`ADR-002`) works at all, before adding the complexity of tool calling
