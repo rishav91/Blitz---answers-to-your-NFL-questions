@@ -42,6 +42,6 @@ def router_node(state: GraphState) -> dict:
 def route_from_intent(state: GraphState) -> str:
     return {
         "factual": "retrieval_node",
-        "analytical": "analytical_stub_node",
+        "analytical": "agentic_retrieval_node",
         "predictive": "predictive_stub_node",
     }[state["intent"]]
