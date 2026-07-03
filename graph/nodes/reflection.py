@@ -72,7 +72,13 @@ def reflection_node(state: GraphState) -> dict:
 
 
 def route_from_reflection(state: GraphState) -> str:
-    return {
-        "grounding": "generation_node",
-        "coverage": "retrieval_node",
-    }.get(state.get("last_failure"), "response_node")
+    failure = state.get("last_failure")
+    if failure == "grounding":
+        return "generation_node"
+    if failure == "coverage":
+        # Same coverage-failure signal, different retrieval step per path
+        # (ADR-004): factual re-enters retrieval_node, analytical re-enters
+        # agentic_retrieval_node — the two loops stay distinct mechanisms,
+        # this is just routing the shared failure_kind to the right one.
+        return "agentic_retrieval_node" if state.get("intent") == "analytical" else "retrieval_node"
+    return "response_node"

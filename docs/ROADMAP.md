@@ -4,19 +4,31 @@ Four phases, each ends with something runnable — see
 [PRD.md §Success metrics](PRD.md#success-metrics), organized by phase
 goal/unlock/rationale.
 
-## Phase 0 — Ingestion pipeline (~2 hrs)
+## Status at a glance
+
+- [x] Phase 0 — Ingestion pipeline
+- [x] Phase 1 — Factual path: RAG + Reflection (UC-4/5/6 verify pass recorded — see 1.7)
+- [x] Cross-cutting — Observability layer
+- [x] Phase 2 — Analytical path: Agentic RAG + tools (UC-2/UC-3 verify pass recorded — see 2.6)
+- [ ] Phase 3 — Predictive path: HITL + UI polish **← next**
+
+**Working convention:** each phase is broken into commit-sized sub-phases
+below. A sub-phase is done when its change lands as its own git commit;
+completed sub-phases reference the commit that shipped them.
+
+## Phase 0 — Ingestion pipeline (~2 hrs) ✅
 
 **Goal:** the walking skeleton — a queryable Chroma corpus, before any graph
 exists.
 
-**Ships:**
-- `nfl_data_py` schedules loaded for 2021–2023
-- Chunk formatter: one game = one text string (score, week, venue, surface,
-  roof — only fields that exist in `games`, per `FR-1.2`)
-- `season`, `game_type`, `week`, `home_team`, `away_team` attached as Chroma
-  metadata alongside the embedded text
-- Corpus embedded with `text-embedding-3-small`, upserted to
-  `chromadb.PersistentClient` (`NFR-3`)
+**Sub-phases:**
+- [x] 0.1 — Ingestion pipeline end-to-end: `nfl_data_py` schedules for
+  2021–2023, chunk formatter (one game = one text string: score, week, venue,
+  surface, roof — only fields that exist in `games`, per `FR-1.2`),
+  `season`/`game_type`/`week`/`home_team`/`away_team` as Chroma metadata,
+  corpus embedded with `text-embedding-3-small` and upserted to
+  `chromadb.PersistentClient` (`NFR-3`), with a built-in metadata-filter
+  verify step — `522bcad`
 
 **Unlocks:** every later phase depends on this corpus existing and being
 metadata-filterable; nothing downstream can be tested without it.
@@ -26,20 +38,66 @@ metadata-filterable; nothing downstream can be tested without it.
 criterion) — this is the cheapest possible check that `ADR-003`'s hybrid
 filter will actually work before any LLM is involved.
 
-## Phase 1 — Factual path end-to-end: RAG + Reflection (~3 hrs)
+## Phase 1 — Factual path end-to-end: RAG + Reflection (~3 hrs) ✅
 
 **Goal:** the first full pattern pair, chosen first because it's the
 simplest — no tool calls, no multi-hop loop, no interrupt.
 
-**Ships:**
-- LangGraph skeleton: `router_node` (analytical/predictive branches stubbed),
-  `retrieval_node`, `generation_node`; compiled with `MemorySaver`
-- `retrieval_node`'s hybrid split (`FR-1.1`): filter on stated
-  season/game_type/week, semantic query on the rest
-- `ui/app.py` wired directly to the compiled graph — `graph.stream(...)`
-  with a `thread_id`, no backend (`ADR-002`)
-- `reflection_node` with both retry edges (`FR-4.2`, `FR-4.3`), shared
-  budget (`NFR-1`)
+**Sub-phases:**
+- [x] 1.1 — LangGraph/LangChain/Streamlit deps + provider-agnostic chat
+  model config via `init_chat_model` (`ADR-006`) — `6c76e91`
+- [x] 1.2 — Shared `GraphState`, `get_chat_model` wrapper, read access to
+  the Chroma `games` collection — `68b71af`
+- [x] 1.3 — `router_node` (factual/analytical/predictive classification,
+  `FR-0.1`) + placeholder nodes for the un-built Phase 2/3 branches —
+  `405e945`
+- [x] 1.4 — `retrieval_node`'s hybrid split (`FR-1.1`): filter on stated
+  season/game_type/week, semantic query on the rest; broadened search on
+  coverage retries — `b5ad64a`
+- [x] 1.5 — `generation_node` + `reflection_node` with both retry edges
+  (`FR-4.2`, `FR-4.3`) and the shared 2-retry budget (`NFR-1`), plus
+  `response_node` — `573fada`
+- [x] 1.6 — Compile the graph with `MemorySaver`; `ui/app.py` wired directly
+  to the compiled graph with a `thread_id`, no backend (`ADR-002`) —
+  `e1ff663`
+- [x] 1.7 — Recorded the verify pass: UC-4, UC-5, UC-6 (see **Verify**
+  below), run against the live graph (`CHAT_MODEL_PROVIDER=groq`,
+  `llama-3.3-70b-versatile`). UC-4 and UC-6 both passed reflection cleanly
+  on every run (3/3 each): the corpus genuinely has no offensive-yards or
+  passer-rating fields (`FR-1.2`'s chunk template is score/week/venue/
+  surface/roof only), and the model correctly said so instead of
+  hallucinating, satisfying `FR-4.1`/`FR-4.3`'s "not available" pass
+  branch. UC-5 did **not** trigger `FR-4.2`'s coverage-failure retry in 6
+  runs; instead the variance showed up one step earlier, in `retrieval_node`'s
+  season extraction — 4/6 runs correctly resolved "2023" to `season=2023`
+  (the actual Week 11 REG game, Eagles 21–17, verified against the public
+  record) and the other 2/6 resolved it to the Super Bowl chunk
+  (`season=2022` per the season-start convention) and produced a
+  hedging/wrong answer that reflection accepted without retry. This is the
+  same run-to-run reflection-judgment inconsistency observed earlier under
+  Groq's `llama-3.3-70b-versatile` (UC-1 testing during Phase 1 build-out)
+  — a known, accepted model-quality limitation of the smaller/faster
+  provider, not a fresh regression — but it does mean the coverage-edge
+  retry itself remains unobserved firing; revisit if Phase 2/3 testing
+  needs that edge proven live, or reconfirm against `CHAT_MODEL_PROVIDER=
+  anthropic` if the inconsistency needs to be isolated from the model choice.
+  **Re-run against `CHAT_MODEL_PROVIDER=openai`, `gpt-5.4-mini`** (same
+  14-invocation batch) showed a near-inverse failure profile: UC-5 went
+  6/6 clean and correct — the season=2022/2023 ambiguity that tripped up
+  Groq didn't recur once. But UC-4 went only 1/4 clean (3/4 burned the
+  full `MAX_REFLECTION_RETRIES` budget) and UC-6 went 0/4 clean (4/4
+  burned it), both shipping with an unwarranted "treat with caution"
+  caveat on an answer that was honest and correct throughout. Root cause:
+  `gpt-5.4-mini`'s `covers_question` judgment reads more literally than
+  Groq's — it marks `covers_question=False` whenever the specific stat
+  isn't in the chunk, even when the answer correctly identified the right
+  game and honestly declined, diverging from `REFLECTION_PROMPT`'s
+  explicit definition ("not whether the chunk explicitly spells out every
+  word of the question"). **Flagged, not fixed**: this is a real
+  cross-provider divergence in how `covers_question` gets interpreted and
+  a legitimate prompt-tightening candidate, but neither provider's failure
+  mode blocks Phase 2, so leaving `reflection.py`'s wording as-is for now
+  — revisit before picking a default provider for real use.
 
 **Unlocks:** proves the no-backend, in-process Streamlit + checkpointer
 setup (`ADR-002`) works at all, before adding the complexity of tool calling
@@ -50,20 +108,66 @@ or interrupts on top of it. Also proves the hybrid retrieval split
 UC-6 (grounding-failure route fires) — confirms both reflection edges
 actually trigger, not just the happy path.
 
-## Phase 2 — Analytical path: Agentic RAG + tools (~3 hrs)
+## Phase 2 — Analytical path: Agentic RAG + tools (~3 hrs) ✅
 
 **Goal:** add the two more complex patterns — multi-hop retrieval and tool
 calling — onto a graph already proven to work end-to-end on the simpler path.
 
-**Ships:**
-- `agentic_retrieval_node`: retrieve → `assess_sufficiency` →
-  refine-and-retrieve loop (`FR-2.1`, capped per `NFR-2`)
-- `calculate_team_stats` and `get_standings` tools (`FR-3.1`, `FR-3.2`),
-  wired into `generation_node`
-- `router_node`'s analytical conditional edge now live
-- `reflection_node` reused on this path; coverage-failure edge retargeted to
-  `agentic_retrieval_node` (not `retrieval_node`), grounding-failure edge
-  unchanged (`ADR-004`)
+**Sub-phases:**
+- [x] 2.1 — `pbp` data access (`graph/nfl_data.py`): play-by-play (2023,
+  trimmed to the columns FR-3.1 needs), completed `games`, and the
+  team→conference map, all lazy in-memory DataFrames, tools-only, never
+  embedded (`ADR-007`); parquet-cached under `.nfl_cache/` so process
+  restarts skip the download — `74466ff`
+- [x] 2.2 — `calculate_team_stats` tool over the `pbp` DataFrame (`FR-3.1`):
+  all five metrics, regular-season scope, fumble attribution by
+  fumbling/recovering team; verified against the 2023 public record (KC 371
+  pts / 21.8 ppg, KC −11 / SF +10 turnover diff) and cross-checked against
+  the `games` DataFrame for all 32 teams. No `compare_teams` — comparisons
+  are two calls (`ADR-005`)
+- [x] 2.3 — `get_standings` tool (`FR-3.2`): W-L-T per conference/season
+  aggregated from the `games` DataFrame only (no `pbp`), win-pct ordering
+  with ties handled; verified against 2023 (BAL 13-4) and 2022 (HOU 3-13-1)
+  public standings
+- [x] 2.4 — `agentic_retrieval_node`: retrieve → `assess_sufficiency` →
+  refine-and-retrieve loop (`FR-2.1`, capped per `NFR-2` = initial hop + 2
+  refinements), loop fully inside the node (`ADR-004`), coverage retries
+  re-enter with the reflection reason as a hint. Control flow (cap, early
+  exit, refined-query plumbing, dedup) verified deterministically without
+  APIs; live LLM/corpus behavior lands with 2.6's UC-2 verify — `69633a2`
+- [x] 2.5 — Wired the analytical branch live: `router_node`'s analytical
+  edge points at `agentic_retrieval_node` → `generation_node`;
+  `analytical_stub_node` removed. `generation_node` binds
+  `calculate_team_stats`/`get_standings` and runs a bounded tool-call loop
+  only when `intent=="analytical"` (`ADR-005`), appending tool results
+  into `context` so `reflection_node`'s existing prompt judges them the
+  same way as retrieved chunks. `reflection_node`'s coverage-failure edge
+  is now intent-aware — retargets to `agentic_retrieval_node` on the
+  analytical path, stays on `retrieval_node` for factual (`ADR-004`);
+  grounding-failure edge unchanged — `b87ab8c`
+- [x] 2.6 — Verify pass: UC-2 and UC-3 (see **Verify** below), run 3x each
+  against the live graph (`CHAT_MODEL_PROVIDER=openai`, `gpt-5.4-mini`).
+  UC-2 passed 3/3 with the correct answer (Packers beat the Chiefs Week
+  13 2023, advanced to the Divisional Round, lost to the 49ers — verified
+  against the public record), confirming `assess_sufficiency` drives a
+  second, dependent retrieval rather than repeating the first. One of the
+  three runs also happened to exercise both retry edges live in the same
+  turn — a grounding-failure retry back to `generation_node`, then a
+  coverage-failure retry that correctly retargeted to
+  `agentic_retrieval_node` (not `retrieval_node`) — and still landed on
+  the correct final answer, a direct confirmation the `ADR-004`
+  retargeting in 2.5 works end-to-end. UC-3 passed 3/3 with exactly two
+  `calculate_team_stats` calls per run (Chiefs and Eagles, no
+  `compare_teams`, per `FR-3.3`), correct and matching turnover
+  differentials (−0.65/game each), correctly synthesized as a tie.
+  Observed inefficiency, not a bug: since `agentic_retrieval_node` always
+  runs first regardless of intent shape (per `ARCHITECTURE.md`'s
+  diagram), a pure stat-comparison question like UC-3 has no "specific
+  game" to retrieve, so `assess_sufficiency` reliably judges its own
+  results insufficient and burns the full `NFR-2` cap (3 attempts) before
+  falling through to `generation_node` anyway — the documented fallback
+  (`ARCHITECTURE.md` §Failure modes) working as designed, just not free.
+  Phase 1's 1.7 backlog item was already closed going into this pass.
 
 **Unlocks:** the two-hop dependent query (UC-2) and the multi-tool-call
 comparison (UC-3) — the patterns most likely to reveal a design flaw, now
@@ -80,11 +184,17 @@ distinct `calculate_team_stats` calls in one turn, not a single bundled call
 HITL gates a *generation* step, so retrieval, tools, and the overall
 graph/checkpointer plumbing need to already be trustworthy.
 
-**Ships:**
-- `router_node`'s predictive conditional edge
-- `hitl_node` via `interrupt()`, placed before `generation_node` (`FR-5.1`)
-- Streamlit polish: team selector, chat window, `st.status` step visibility
-- End-to-end demo across all three branches
+**Sub-phases:**
+- [ ] 3.1 — `hitl_node` via `interrupt()`, placed before `generation_node`
+  (`FR-5.1`); `router_node`'s predictive conditional edge pointed at it,
+  `predictive_stub_node` removed
+- [ ] 3.2 — Streamlit interrupt/resume wiring: surface the confirmation to
+  the user, resume on confirm, return `FR-5.2`'s no-prediction response on
+  decline — no speculative text before confirmation
+- [ ] 3.3 — Streamlit polish: team selector, chat window, `st.status` step
+  visibility
+- [ ] 3.4 — End-to-end demo across all three branches; verify pass: UC-7
+  (see **Verify** below)
 
 **Unlocks:** nothing further — this is the last phase. Sequenced last
 because debugging an `interrupt()`/resume issue is harder when the rest of
@@ -120,12 +230,24 @@ and tools both proven). This order means a timebox slip surfaces against the
 *cheapest* patterns first, not the most expensive ones — see [PRD.md
 §Risks](PRD.md#risks).
 
-## Cross-cutting — Observability layer
+## Cross-cutting — Observability layer ✅
 
 Added after Phase 1 landed, orthogonal to the five-pattern phase sequence
 above rather than its own numbered phase: OpenTelemetry traces/metrics/logs
 on every existing node, visualized in Tempo/Prometheus/Loki/Grafana (see
 [ADR-008](ADRs.md#adr-008), [ARCHITECTURE.md §Observability](ARCHITECTURE.md#observability-adr-008)).
 The `traced_node` decorator pattern carries forward automatically as Phase
-2/3 nodes get built — they inherit it the same way `analytical_stub_node`/
-`predictive_stub_node` already do.
+2/3 nodes get built — `agentic_retrieval_node` and the analytical-path
+`generation_node` already inherit it, the same way `predictive_stub_node`
+does until Phase 3 replaces it.
+
+**Sub-phases:**
+- [x] O.1 — ADR-008 + PRD reword distinguishing dev-time transparency from
+  production monitoring — `d84bcb1`
+- [x] O.2 — Docker observability stack: OTel Collector, Tempo, Prometheus,
+  Loki, Grafana with trace-to-logs/metrics correlation and a starter
+  dashboard — `67006a4`
+- [x] O.3 — `traced_node` decorator on every graph node + request/reflection
+  counters; LLM calls auto-traced via LangChain instrumentation — `af873e6`
+- [x] O.4 — Per-answer tracing in the Streamlit UI: Reasoning trail expander
+  and Grafana trace deep link — `a346039`

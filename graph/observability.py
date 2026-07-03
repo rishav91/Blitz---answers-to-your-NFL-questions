@@ -142,6 +142,8 @@ _STATE_ATTRIBUTES = (
     "game_type",
     "week",
     "semantic_query",
+    "sufficiency_attempts",
+    "sufficiency_reason",
     "retry_count",
     "last_failure",
     "failure_reason",
