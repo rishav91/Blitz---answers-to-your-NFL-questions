@@ -89,6 +89,8 @@ def calculate_team_stats(team: str, season: int, metric: Metric) -> dict:
         giveaways = int((picked & (reg["posteam"] == abbr)).sum()) + int((lost & (reg["fumbled_1_team"] == abbr)).sum())
         takeaways = int((picked & (reg["defteam"] == abbr)).sum()) + int((lost & (reg["fumble_recovery_1_team"] == abbr)).sum())
         games = reg.loc[(reg["home_team"] == abbr) | (reg["away_team"] == abbr), "game_id"].nunique()
+        if games == 0:
+            return {"error": f"No regular-season games found for {abbr} in {season}."}
         result.update(
             value=takeaways - giveaways, takeaways=takeaways, giveaways=giveaways,
             games=games, per_game=round((takeaways - giveaways) / games, 2),
@@ -97,6 +99,8 @@ def calculate_team_stats(team: str, season: int, metric: Metric) -> dict:
     elif metric == "third_down_pct":
         attempts = reg[(reg["posteam"] == abbr) & (reg["down"] == 3)
                        & ((reg["third_down_converted"] == 1) | (reg["third_down_failed"] == 1))]
+        if len(attempts) == 0:
+            return {"error": f"No third-down plays found for {abbr} in {season}."}
         converted = int((attempts["third_down_converted"] == 1).sum())
         result.update(value=round(100 * converted / len(attempts), 1), converted=converted, attempts=len(attempts))
 
@@ -104,6 +108,8 @@ def calculate_team_stats(team: str, season: int, metric: Metric) -> dict:
         # TD rate per red-zone trip: drives with any snap inside the 20.
         rz = reg[(reg["posteam"] == abbr) & (reg["yardline_100"] <= 20)]
         drives = rz.groupby(["game_id", "fixed_drive"])["fixed_drive_result"].first()
+        if len(drives) == 0:
+            return {"error": f"No red-zone drives found for {abbr} in {season}."}
         tds = int((drives == "Touchdown").sum())
         result.update(value=round(100 * tds / len(drives), 1), td_drives=tds, red_zone_trips=len(drives))
 

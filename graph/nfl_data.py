@@ -8,11 +8,14 @@ a trimmed parquet under `.nfl_cache/` (gitignored) so later process starts
 skip the multi-minute download; delete the directory to force a re-fetch.
 """
 
+import logging
 from pathlib import Path
 from typing import Optional
 
 import nfl_data_py as nfl
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path(".nfl_cache")
 
@@ -65,10 +68,13 @@ def get_games() -> pd.DataFrame:
         def load():
             try:
                 games = nfl.import_schedules(GAMES_SEASONS)
-            except Exception:
+            except Exception as exc:
                 # import_schedules reads Lee Sharpe's personal domain
                 # (habitatring.com); fall back to the same file in the
-                # canonical nflverse repo when that's unreachable.
+                # canonical nflverse repo when that's unreachable. Log the
+                # original error so a non-network failure (schema drift,
+                # auth, malformed data) isn't silently masked by the fallback.
+                logger.warning("nfl.import_schedules failed, falling back to nflverse mirror: %s", exc)
                 games = pd.read_csv(
                     "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv"
                 )
