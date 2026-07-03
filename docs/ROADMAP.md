@@ -9,8 +9,8 @@ goal/unlock/rationale.
 - [x] Phase 0 — Ingestion pipeline
 - [x] Phase 1 — Factual path: RAG + Reflection (UC-4/5/6 verify pass recorded — see 1.7)
 - [x] Cross-cutting — Observability layer
-- [ ] Phase 2 — Analytical path: Agentic RAG + tools **← next**
-- [ ] Phase 3 — Predictive path: HITL + UI polish
+- [x] Phase 2 — Analytical path: Agentic RAG + tools (UC-2/UC-3 verify pass recorded — see 2.6)
+- [ ] Phase 3 — Predictive path: HITL + UI polish **← next**
 
 **Working convention:** each phase is broken into commit-sized sub-phases
 below. A sub-phase is done when its change lands as its own git commit;
@@ -108,7 +108,7 @@ or interrupts on top of it. Also proves the hybrid retrieval split
 UC-6 (grounding-failure route fires) — confirms both reflection edges
 actually trigger, not just the happy path.
 
-## Phase 2 — Analytical path: Agentic RAG + tools (~3 hrs) ⬅ next
+## Phase 2 — Analytical path: Agentic RAG + tools (~3 hrs) ✅
 
 **Goal:** add the two more complex patterns — multi-hop retrieval and tool
 calling — onto a graph already proven to work end-to-end on the simpler path.
@@ -135,13 +135,39 @@ calling — onto a graph already proven to work end-to-end on the simpler path.
   re-enter with the reflection reason as a hint. Control flow (cap, early
   exit, refined-query plumbing, dedup) verified deterministically without
   APIs; live LLM/corpus behavior lands with 2.6's UC-2 verify — `69633a2`
-- [ ] 2.5 — Wire the analytical branch live: tools bound into
-  `generation_node`, `router_node`'s analytical conditional edge pointed at
-  the real path, `analytical_stub_node` removed; `reflection_node` reused
-  with its coverage-failure edge retargeted to `agentic_retrieval_node`
-  (not `retrieval_node`), grounding-failure edge unchanged (`ADR-004`)
-- [ ] 2.6 — Verify pass: UC-2 and UC-3 (see **Verify** below), plus the
-  Phase 1 backlog item 1.7 if still open
+- [x] 2.5 — Wired the analytical branch live: `router_node`'s analytical
+  edge points at `agentic_retrieval_node` → `generation_node`;
+  `analytical_stub_node` removed. `generation_node` binds
+  `calculate_team_stats`/`get_standings` and runs a bounded tool-call loop
+  only when `intent=="analytical"` (`ADR-005`), appending tool results
+  into `context` so `reflection_node`'s existing prompt judges them the
+  same way as retrieved chunks. `reflection_node`'s coverage-failure edge
+  is now intent-aware — retargets to `agentic_retrieval_node` on the
+  analytical path, stays on `retrieval_node` for factual (`ADR-004`);
+  grounding-failure edge unchanged — `b87ab8c`
+- [x] 2.6 — Verify pass: UC-2 and UC-3 (see **Verify** below), run 3x each
+  against the live graph (`CHAT_MODEL_PROVIDER=openai`, `gpt-5.4-mini`).
+  UC-2 passed 3/3 with the correct answer (Packers beat the Chiefs Week
+  13 2023, advanced to the Divisional Round, lost to the 49ers — verified
+  against the public record), confirming `assess_sufficiency` drives a
+  second, dependent retrieval rather than repeating the first. One of the
+  three runs also happened to exercise both retry edges live in the same
+  turn — a grounding-failure retry back to `generation_node`, then a
+  coverage-failure retry that correctly retargeted to
+  `agentic_retrieval_node` (not `retrieval_node`) — and still landed on
+  the correct final answer, a direct confirmation the `ADR-004`
+  retargeting in 2.5 works end-to-end. UC-3 passed 3/3 with exactly two
+  `calculate_team_stats` calls per run (Chiefs and Eagles, no
+  `compare_teams`, per `FR-3.3`), correct and matching turnover
+  differentials (−0.65/game each), correctly synthesized as a tie.
+  Observed inefficiency, not a bug: since `agentic_retrieval_node` always
+  runs first regardless of intent shape (per `ARCHITECTURE.md`'s
+  diagram), a pure stat-comparison question like UC-3 has no "specific
+  game" to retrieve, so `assess_sufficiency` reliably judges its own
+  results insufficient and burns the full `NFR-2` cap (3 attempts) before
+  falling through to `generation_node` anyway — the documented fallback
+  (`ARCHITECTURE.md` §Failure modes) working as designed, just not free.
+  Phase 1's 1.7 backlog item was already closed going into this pass.
 
 **Unlocks:** the two-hop dependent query (UC-2) and the multi-tool-call
 comparison (UC-3) — the patterns most likely to reveal a design flaw, now
@@ -211,8 +237,9 @@ above rather than its own numbered phase: OpenTelemetry traces/metrics/logs
 on every existing node, visualized in Tempo/Prometheus/Loki/Grafana (see
 [ADR-008](ADRs.md#adr-008), [ARCHITECTURE.md §Observability](ARCHITECTURE.md#observability-adr-008)).
 The `traced_node` decorator pattern carries forward automatically as Phase
-2/3 nodes get built — they inherit it the same way `analytical_stub_node`/
-`predictive_stub_node` already do.
+2/3 nodes get built — `agentic_retrieval_node` and the analytical-path
+`generation_node` already inherit it, the same way `predictive_stub_node`
+does until Phase 3 replaces it.
 
 **Sub-phases:**
 - [x] O.1 — ADR-008 + PRD reword distinguishing dev-time transparency from

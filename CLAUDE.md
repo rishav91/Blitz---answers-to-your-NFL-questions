@@ -37,13 +37,13 @@ The docs in `docs/` are the project's spine and are actively maintained — read
 ```
 START → router_node → (by intent)
   factual    → retrieval_node → generation_node → reflection_node → response_node → END
-  analytical → analytical_stub_node → response_node        (real path lands in Phase 2)
+  analytical → agentic_retrieval_node → generation_node (tools bound) → reflection_node → response_node
   predictive → predictive_stub_node → response_node        (real path lands in Phase 3)
 ```
 
 `reflection_node` judges the draft on two axes and routes retries differently (`route_from_reflection`):
 - **grounding failure** (answer states facts not in the context) → back to `generation_node` with a fixed correction template
-- **coverage failure** (context lacks/doesn't pin down the right game) → back to `retrieval_node`, which **drops the metadata filter entirely** and broadens to `n_results=5`
+- **coverage failure** (context lacks/doesn't pin down the right game) → back to the path's retrieval step, which **drops the metadata filter entirely** and broadens to `n_results=5` — `retrieval_node` on the factual path, `agentic_retrieval_node` on the analytical path (intent-aware retargeting, `ADR-004`)
 
 Both edges share one retry budget: `MAX_REFLECTION_RETRIES = 2` total (NFR-1, in `graph/state.py`). On exhaustion the draft ships with a caution caveat rather than failing.
 
@@ -54,6 +54,7 @@ All nodes read/write the `GraphState` TypedDict (`graph/state.py`); each field i
 - **LLM access** (`graph/llm.py`, ADR-006): always `init_chat_model` with provider/model from env (`CHAT_MODEL`, `CHAT_MODEL_PROVIDER`). Never import a vendor SDK directly for chat. Embeddings are the deliberate exception — pinned to OpenAI `text-embedding-3-small`, not abstracted.
 - **Hybrid retrieval** (ADR-003): an LLM extracts structured filters (season/game_type/week) plus a semantic query; `graph/store.py` combines a Chroma metadata `where` filter with nearest-neighbor search. Note: this chromadb version rejects implicit-AND multi-key filters — multi-clause filters must be wrapped in `{"$and": [...]}` (`build_where` handles this).
 - **Data split** (ADR-007): `games` schedules → embedded RAG corpus; `pbp` play-by-play → in-memory DataFrame for tools only, never embedded.
+- **Tool calling** (`graph/tools.py`, ADR-005): `calculate_team_stats`/`get_standings` are bound in `generation_node` only when `intent=="analytical"`; no `compare_teams` tool — the model decides how many `calculate_team_stats` calls a comparison needs (one per team). Tool results get appended into `context` so `reflection_node`'s grounding/coverage check applies uniformly across retrieved chunks and tool output.
 - **No backend** (ADR-002): Streamlit imports the compiled graph directly. The `MemorySaver` checkpointer is in-process and required for the Phase 3 `interrupt()`/resume HITL flow — don't serialize state over HTTP.
 - **Season semantics**: `season` metadata is the year the season *started*; playoffs/Super Bowl are played in Jan/Feb of the following calendar year. Both the generation and reflection prompts explicitly handle this conversion — preserve it when editing prompts.
 - **Structured LLM output**: every classifying/extracting/judging LLM call uses `with_structured_output` on a Pydantic model (see router, retrieval, reflection). Free-form model text feeding back into prompts is restricted to the reflection *reason* slotted into fixed templates (instruction/data separation, docs/AI-ARCHITECTURE.md).
@@ -64,6 +65,6 @@ Every graph node is wrapped with `@traced_node("name")` — it opens a `node.<na
 
 ## Current state (per docs/ROADMAP.md)
 
-Phases 0–1 are built: ingestion, the factual RAG + reflection path, Streamlit UI, observability stack. Phase 2 (agentic RAG + `pbp` tools for the analytical branch) and Phase 3 (HITL `interrupt()` for the predictive branch, UI polish) are stubbed in `graph/nodes/stubs.py`. `router_node` already classifies all three intents.
+Phases 0–2 are built: ingestion, the factual RAG + reflection path, the analytical agentic-RAG + tool-calling path, Streamlit UI, observability stack. Phase 3 (HITL `interrupt()` for the predictive branch, UI polish) is still stubbed in `graph/nodes/stubs.py`. `router_node` already classifies all three intents.
 
 **Workflow:** docs/ROADMAP.md tracks progress with checkboxes — a "Status at a glance" list plus per-phase **Sub-phases** broken into commit-sized units. Work one sub-phase at a time; each completed sub-phase ends in its own git commit, and its checkbox gets ticked with the commit hash appended (`— <hash>`, matching the existing style). Keep the roadmap current as sub-phases land.
