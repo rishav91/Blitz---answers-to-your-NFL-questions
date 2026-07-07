@@ -66,6 +66,7 @@ provider-abstraction, native LangChain abstraction chosen instead).
 | [AI-ARCHITECTURE.md](AI-ARCHITECTURE.md) | Where each LLM call earns its place, the deterministic/LLM split, safety posture |
 | [REQUIREMENTS.md](REQUIREMENTS.md) | FR-x.y / NFR-x.y, mapped to the Test Queries table, P0 summary |
 | [ROADMAP.md](ROADMAP.md) | The phased build plan, with sequencing rationale |
+| [PRODUCTION.md](PRODUCTION.md) | A forward-looking, additive extension beyond this suite's learning-exercise scope: how to actually deploy this to AWS for real users (Bedrock, EKS, Aurora/pgvector, Cognito), with a phased rollout plan and a 1k-DAU/5k-questions-day vs. 100k-questions-day scale delta. Doesn't change the graph itself — see its own scope note |
 
 ## Reading order
 
@@ -76,6 +77,7 @@ provider-abstraction, native LangChain abstraction chosen instead).
 5. [AI-ARCHITECTURE.md](AI-ARCHITECTURE.md) — the AI-specific cross-cutting concerns
 6. [REQUIREMENTS.md](REQUIREMENTS.md) — the testable contract
 7. [ROADMAP.md](ROADMAP.md) — the build sequence
+8. [PRODUCTION.md](PRODUCTION.md) — optional: deploying this for real users, if/when that's the goal
 
 ## Conventions
 
